@@ -18,14 +18,14 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    raise ValueError("TOKEN not found in .env")
+    raise ValueError("TOKEN not found in environment")
 
 # -------------------------
 # MEMORY STORAGE
 # -------------------------
 waiting_users = []
 active_pairs = {}
-users = {}  # store interests
+users = {}
 reports = {}
 
 # -------------------------
@@ -78,38 +78,58 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MATCHING LOGIC
 # -------------------------
 async def connect(user_id, context):
+
+    # Prevent duplicate queue entry
+    if user_id in waiting_users:
+        return
+
+    # Prevent reconnect while already chatting
+    if user_id in active_pairs:
+        return
+
     user_interest = users.get(user_id)
 
-    # Try match same interest first
-    for waiting in waiting_users:
-        if waiting != user_id:
-            if users.get(waiting) == user_interest:
-                waiting_users.remove(waiting)
-                active_pairs[user_id] = waiting
-                active_pairs[waiting] = user_id
+    # Try interest-based match first
+    for partner in waiting_users:
+        if partner != user_id:
+            if users.get(partner) == user_interest:
+                waiting_users.remove(partner)
+
+                active_pairs[user_id] = partner
+                active_pairs[partner] = user_id
 
                 await context.bot.send_message(user_id, "✅ Connected!", reply_markup=chat_menu())
-                await context.bot.send_message(waiting, "✅ Connected!", reply_markup=chat_menu())
+                await context.bot.send_message(partner, "✅ Connected!", reply_markup=chat_menu())
                 return
 
-    # If no match found → random
-    if waiting_users:
-        partner = waiting_users.pop()
-        active_pairs[user_id] = partner
-        active_pairs[partner] = user_id
+    # Random match fallback
+    for partner in waiting_users:
+        if partner != user_id:
+            waiting_users.remove(partner)
 
-        await context.bot.send_message(user_id, "✅ Connected!", reply_markup=chat_menu())
-        await context.bot.send_message(partner, "✅ Connected!", reply_markup=chat_menu())
-    else:
-        waiting_users.append(user_id)
-        await context.bot.send_message(user_id, "⏳ Waiting for partner...")
+            active_pairs[user_id] = partner
+            active_pairs[partner] = user_id
+
+            await context.bot.send_message(user_id, "✅ Connected!", reply_markup=chat_menu())
+            await context.bot.send_message(partner, "✅ Connected!", reply_markup=chat_menu())
+            return
+
+    # If no partner found → wait
+    waiting_users.append(user_id)
+    await context.bot.send_message(user_id, "⏳ Waiting for partner...")
 
 async def disconnect(user_id, context):
-    if user_id in active_pairs:
-        partner = active_pairs[user_id]
 
-        del active_pairs[user_id]
-        del active_pairs[partner]
+    # Remove from waiting queue if present
+    if user_id in waiting_users:
+        waiting_users.remove(user_id)
+
+    if user_id in active_pairs:
+        partner = active_pairs.get(user_id)
+
+        # Clean both sides safely
+        active_pairs.pop(user_id, None)
+        active_pairs.pop(partner, None)
 
         try:
             await context.bot.send_message(partner, "❌ Partner left.", reply_markup=main_menu())
@@ -165,7 +185,12 @@ async def relay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in active_pairs:
         return
 
-    partner = active_pairs[user_id]
+    partner = active_pairs.get(user_id)
+
+    # Extra safety: prevent self-relay
+    if partner == user_id:
+        return
+
     await update.message.copy(chat_id=partner)
 
 # -------------------------
