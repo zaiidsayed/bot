@@ -284,24 +284,22 @@ app.add_error_handler(error_handler)
 
 print("🚀 Anonymous Chat Platform Running...")
 
-# -------------------------
-# WEBHOOK (RAILWAY)
-# -------------------------
 PORT = int(os.environ.get("PORT", 8080))
 
-RAILWAY_URL = os.environ.get("RAILWAY_STATIC_URL")
+RAILWAY_URL = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
 
 if not RAILWAY_URL:
-    raise ValueError("RAILWAY_STATIC_URL not found")
+    print("Local mode")
+    app.run_polling()
+else:
+    WEBHOOK_URL = f"https://{RAILWAY_URL}/{TOKEN}"
 
-WEBHOOK_URL = f"https://{RAILWAY_URL}/{TOKEN}"
+    print("Webhook:", WEBHOOK_URL)
 
-print("Webhook URL:", WEBHOOK_URL)
-
-app.run_webhook(
-    listen="0.0.0.0",
-    port=PORT,
-    url_path=TOKEN,
-    webhook_url=WEBHOOK_URL,
-    drop_pending_updates=True
-)
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=WEBHOOK_URL,
+        drop_pending_updates=True
+    )
